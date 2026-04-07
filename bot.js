@@ -1,9 +1,17 @@
 const { Bot } = require('grammy');
 const cron = require('node-cron');
 
+process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
+process.on('uncaughtException', (err) => console.error('Uncaught exception:', err));
+
 // ─── Config ──────────────────────────────────────────────
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID || '6696661524';
+
+if (!BOT_TOKEN) {
+  console.error('BOT_TOKEN is required');
+  process.exit(1);
+}
 
 const bot = new Bot(BOT_TOKEN);
 
@@ -210,14 +218,14 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Boss bot API listening on port ${PORT}`);
 
-  // Start Telegram polling after HTTP is ready
-  bot.start({
-    onStart: () => console.log('Telegram bot started'),
+  // Delete any existing webhook, then start long polling
+  bot.api.deleteWebhook({ drop_pending_updates: true }).then(() => {
+    console.log('Webhook cleared, starting polling...');
+    bot.start({
+      drop_pending_updates: true,
+      onStart: () => console.log('Telegram bot started'),
+    });
   }).catch(err => {
-    console.error('Bot polling error:', err.message);
-    // Restart polling after delay
-    setTimeout(() => {
-      bot.start().catch(e => console.error('Bot restart failed:', e.message));
-    }, 5000);
+    console.error('Bot start error:', err.message);
   });
 });
