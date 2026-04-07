@@ -1,0 +1,12 @@
+{
+  "name": "xplai-boss-bot",
+  "version": "1.0.0",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "grammy": "^1.21.0",
+    "node-cron": "^3.0.3"
+  }
+}
