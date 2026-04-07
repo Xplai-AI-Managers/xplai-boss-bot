@@ -209,8 +209,15 @@ app.get('/health', (req, res) => res.json({ ok: true, service: 'xplai-boss-bot' 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Boss bot API listening on port ${PORT}`);
-});
 
-bot.start({
-  onStart: () => console.log('Telegram bot started'),
+  // Start Telegram polling after HTTP is ready
+  bot.start({
+    onStart: () => console.log('Telegram bot started'),
+  }).catch(err => {
+    console.error('Bot polling error:', err.message);
+    // Restart polling after delay
+    setTimeout(() => {
+      bot.start().catch(e => console.error('Bot restart failed:', e.message));
+    }, 5000);
+  });
 });
