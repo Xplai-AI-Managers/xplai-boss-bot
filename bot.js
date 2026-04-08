@@ -1,151 +1,236 @@
-const { Bot } = require('grammy');
+const { Bot, InlineKeyboard } = require('grammy');
 const cron = require('node-cron');
 const express = require('express');
+const Anthropic = require('@anthropic-ai/sdk');
 
-// ─── Keep process alive on any error ─────────────────────
-process.on('unhandledRejection', (err) => {
-  console.error('[unhandledRejection]', err?.message || err);
-});
-process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err?.message || err);
-  // Do NOT exit — let Railway keep the process running
-});
+process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err?.message || err));
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err?.message || err));
 
 // ─── Config ──────────────────────────────────────────────
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID || '6696661524';
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+const SUPPORT_URL = process.env.SUPPORT_URL || 'https://support-server-production-0981.up.railway.app';
+const DEMO_URL = process.env.DEMO_URL || 'https://demo-chat-production-272b.up.railway.app';
 
-if (!BOT_TOKEN) {
-  console.error('BOT_TOKEN is required');
-  process.exit(1);
-}
+if (!BOT_TOKEN) { console.error('BOT_TOKEN required'); process.exit(1); }
 
 const bot = new Bot(BOT_TOKEN);
+const claude = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
-// Catch all Grammy errors (polling errors, middleware errors)
-bot.catch((err) => {
-  console.error('[Grammy error]', err.message || err);
-});
+bot.catch((err) => console.error('[Grammy]', err.message || err));
 
-// ─── In-memory storage ──────────────────────────────────
+// ─── In-memory store ─────────────────────────────────────
 const store = {
   leads: [],
   errors: [],
   agents: {
-    'demo-chat':  { status: '🟢 online', lastPing: Date.now() },
-    'support':    { status: '🟢 online', lastPing: Date.now() },
-    'accountant': { status: '🟢 online', lastPing: Date.now() },
-    'seo-lt':     { status: '🟢 online', lastPing: Date.now() },
-    'seo-vn':     { status: '🟢 online', lastPing: Date.now() },
-    'smm':        { status: '🟢 online', lastPing: Date.now() },
+    'demo-chat':      { status: '🟢', url: DEMO_URL },
+    'support-server': { status: '🟢', url: SUPPORT_URL },
+    'boss-bot':       { status: '🟢', url: null },
   },
-  financials: {
-    revenue: 0,
-    expenses: 0,
-    clients: 0,
-    newClients: 0,
-  },
+  financials: { revenue: 0, expenses: 0, clients: 0, newClients: 0 },
 };
 
 // ─── Helpers ─────────────────────────────────────────────
-function esc(t) { return String(t).replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&'); }
-
 function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 
-async function send(text) {
+async function checkService(url) {
   try {
-    await bot.api.sendMessage(CHAT_ID, text, { parse_mode: 'MarkdownV2' });
+    const r = await fetch(url + '/health', { signal: AbortSignal.timeout(5000) });
+    const d = await r.json();
+    return { ok: d.ok, uptime: d.uptime || d.uptimeSeconds || 0, stats: d.stats };
   } catch (e) {
-    try {
-      await bot.api.sendMessage(CHAT_ID, text.replace(/\\/g, ''));
-    } catch (e2) {
-      console.error('[send fallback failed]', e2.message);
-    }
+    return { ok: false, error: e.message };
   }
 }
 
-// ─── Daily report (09:00 EET) ────────────────────────────
-function buildDailyReport() {
-  const f = store.financials;
-  const profit = f.revenue - f.expenses;
-  const sign = profit >= 0 ? '📈' : '📉';
-  const today = new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric' });
-  const leadsToday = store.leads.filter(l => {
-    return new Date(l.date).toDateString() === new Date().toDateString();
-  }).length;
+// ─── /start — dashboard menu ─────────────────────────────
+const mainMenu = new InlineKeyboard()
+  .text('📊 Статистика', 'stat').text('🤖 Агенты', 'agents').row()
+  .text('📧 Последние письма', 'emails').text('⚙️ Здоровье', 'health');
 
-  return [
-    `📊 *Отчёт xplai\\.eu — ${esc(today)}*`,
-    ``,
-    `💰 Выручка: €${f.revenue} \\| Расходы: €${f.expenses}`,
-    `${sign} Прибыль: €${profit}`,
-    `👥 Клиентов: ${f.clients} \\| Новых: ${f.newClients}`,
-    `📬 Лидов сегодня: ${leadsToday} \\| Всего: ${store.leads.length}`,
-    ``,
-    `🤖 *Агенты:*`,
-    ...Object.entries(store.agents).map(([name, a]) => `  ${a.status} ${esc(name)}`),
-    ``,
-    store.errors.length > 0
-      ? `⚠️ Ошибок за сутки: ${store.errors.length}`
-      : `✅ Ошибок нет`,
-  ].join('\n');
-}
-
-cron.schedule('0 9 * * *', () => {
-  send(buildDailyReport()).catch(e => console.error('[cron report]', e.message));
-}, { timezone: 'Europe/Vilnius' });
-
-// ─── Bot Commands ────────────────────────────────────────
-
-bot.command('start', (ctx) => {
-  ctx.reply(
-    '👋 Привет, босс! Я бот xplai.eu.\n\n' +
-    'Команды:\n' +
-    '/status — статус всех агентов\n' +
-    '/pl — P&L отчёт\n' +
-    '/leads — список лидов\n' +
-    '/report — дневной отчёт сейчас'
+bot.command('start', async (ctx) => {
+  await ctx.reply(
+    '🏢 *xplai\\.eu — Панель управления*\n\n' +
+    'Добро пожаловать, босс\\! Выбери действие:',
+    { parse_mode: 'MarkdownV2', reply_markup: mainMenu }
   );
 });
 
-bot.command('status', (ctx) => {
-  const lines = Object.entries(store.agents).map(([name, a]) => {
-    const ago = Math.round((Date.now() - a.lastPing) / 60000);
-    return `${a.status} ${name} (ping ${ago}m ago)`;
-  });
-  ctx.reply('🤖 Статус агентов:\n\n' + lines.join('\n'));
+// ─── /stat — live statistics ─────────────────────────────
+async function getStatText() {
+  const support = await checkService(SUPPORT_URL);
+  const demo = await checkService(DEMO_URL);
+
+  const ss = support.stats || {};
+  const lines = [
+    '📊 *Статистика xplai\\.eu*\n',
+    `📧 Писем обработано: *${ss.processed || 0}*`,
+    `✅ Ответов отправлено: *${ss.replied || 0}*`,
+    `🚫 Спам: *${ss.spam || 0}*`,
+    `❌ Ошибок: *${ss.errors || 0}*`,
+    `⏱ Support uptime: *${formatUptime(support.uptime)}*`,
+    `⏱ Demo\\-chat uptime: *${formatUptime(demo.uptime)}*`,
+    `👥 Лидов: *${store.leads.length}*`,
+  ];
+  return lines.join('\n');
+}
+
+function formatUptime(s) {
+  if (!s) return '—';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}ч ${m}м`;
+}
+
+bot.command('stat', async (ctx) => {
+  await ctx.reply(await getStatText(), { parse_mode: 'MarkdownV2' });
 });
 
-bot.command('pl', (ctx) => {
+// ─── /agents — agent status ──────────────────────────────
+async function getAgentsText() {
+  const results = await Promise.all([
+    checkService(DEMO_URL),
+    checkService(SUPPORT_URL),
+  ]);
+
+  const lines = [
+    '🤖 *Статус агентов*\n',
+    `${results[0].ok ? '🟢' : '🔴'} demo\\-chat — ${results[0].ok ? 'online ' + formatUptime(results[0].uptime) : 'OFFLINE'}`,
+    `${results[1].ok ? '🟢' : '🔴'} support\\-server — ${results[1].ok ? 'online ' + formatUptime(results[1].uptime) : 'OFFLINE'}`,
+    `🟢 boss\\-bot — online ${formatUptime(process.uptime())}`,
+  ];
+  return lines.join('\n');
+}
+
+bot.command('agents', async (ctx) => {
+  await ctx.reply(await getAgentsText(), { parse_mode: 'MarkdownV2' });
+});
+
+// ─── /health — deep health check ────────────────────────
+bot.command('health', async (ctx) => {
+  const [demo, support] = await Promise.all([
+    checkService(DEMO_URL),
+    checkService(SUPPORT_URL),
+  ]);
+
+  const all = demo.ok && support.ok;
+  const lines = [
+    all ? '✅ *Все сервисы работают\\!*\n' : '⚠️ *Есть проблемы\\!*\n',
+    `demo\\-chat: ${demo.ok ? '✅ OK' : '❌ ' + (demo.error || 'down')}`,
+    `support\\-server: ${support.ok ? '✅ OK' : '❌ ' + (support.error || 'down')}`,
+    `boss\\-bot: ✅ OK`,
+  ];
+  await ctx.reply(lines.join('\n'), { parse_mode: 'MarkdownV2' });
+});
+
+// ─── /leads — recent leads ──────────────────────────────
+bot.command('leads', async (ctx) => {
+  if (store.leads.length === 0) return ctx.reply('📬 Лидов пока нет.');
+  const last = store.leads.slice(-10).reverse();
+  const lines = last.map((l, i) =>
+    `${i + 1}. ${l.name || 'Anonymous'} — ${l.source || 'email'} — ${fmtDate(l.date)}`
+  );
+  await ctx.reply(`📬 Последние лиды (${store.leads.length}):\n\n` + lines.join('\n'));
+});
+
+// ─── /pl — P&L report ────────────────────────────────────
+bot.command('pl', async (ctx) => {
   const f = store.financials;
   const profit = f.revenue - f.expenses;
-  ctx.reply(
-    `📊 P&L отчёт xplai.eu\n\n` +
-    `💰 Выручка: €${f.revenue}\n` +
-    `💸 Расходы: €${f.expenses}\n` +
-    `${profit >= 0 ? '📈' : '📉'} Прибыль: €${profit}\n\n` +
+  await ctx.reply(
+    `📊 P&L xplai.eu\n\n` +
+    `💰 Выручка: €${f.revenue}\n💸 Расходы: €${f.expenses}\n` +
+    `${profit >= 0 ? '📈' : '📉'} Прибыль: €${profit}\n` +
     `👥 Клиентов: ${f.clients} | Новых: ${f.newClients}`
   );
 });
 
-bot.command('leads', (ctx) => {
-  if (store.leads.length === 0) {
-    return ctx.reply('📬 Лидов пока нет.');
+// ─── /report — daily report now ──────────────────────────
+bot.command('report', async (ctx) => {
+  await ctx.reply(await getStatText(), { parse_mode: 'MarkdownV2' });
+});
+
+// ─── Inline button handlers ──────────────────────────────
+bot.callbackQuery('stat', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await ctx.reply(await getStatText(), { parse_mode: 'MarkdownV2' });
+});
+
+bot.callbackQuery('agents', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await ctx.reply(await getAgentsText(), { parse_mode: 'MarkdownV2' });
+});
+
+bot.callbackQuery('emails', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  try {
+    const r = await fetch(SUPPORT_URL + '/log', { signal: AbortSignal.timeout(5000) });
+    const logs = await r.json();
+    if (!logs || logs.length === 0) return ctx.reply('📧 Нет недавних писем.');
+    const lines = logs.slice(0, 10).map(l =>
+      `${l.action === 'REPLIED' ? '✅' : l.action === 'ERROR' ? '❌' : '📩'} ${l.from || '?'} — ${l.reason || l.subject || l.action}`
+    );
+    await ctx.reply('📧 Последние события:\n\n' + lines.join('\n'));
+  } catch (e) {
+    await ctx.reply('❌ Не удалось получить логи: ' + e.message);
   }
-  const last10 = store.leads.slice(-10).reverse();
-  const lines = last10.map((l, i) =>
-    `${i + 1}. ${l.name || 'Anonymous'} — ${l.source || 'chat'} — ${fmtDate(l.date)}`
+});
+
+bot.callbackQuery('health', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const [demo, support] = await Promise.all([
+    checkService(DEMO_URL),
+    checkService(SUPPORT_URL),
+  ]);
+  const all = demo.ok && support.ok;
+  await ctx.reply(
+    (all ? '✅ Все сервисы ОК\n\n' : '⚠️ Есть проблемы!\n\n') +
+    `demo-chat: ${demo.ok ? '✅' : '❌'}\n` +
+    `support-server: ${support.ok ? '✅' : '❌'}\n` +
+    `boss-bot: ✅`
   );
-  ctx.reply(`📬 Последние лиды (${store.leads.length} всего):\n\n` + lines.join('\n'));
 });
 
-bot.command('report', (ctx) => {
-  send(buildDailyReport()).catch(e => console.error('[report cmd]', e.message));
+// ─── Free text → Claude CEO assistant ────────────────────
+const CEO_PROMPT = `You are a smart CEO assistant for xplai.eu — an AI manager platform for businesses.
+You know everything about xplai.eu:
+- Products: Chat, Phone, WhatsApp, Email, Omnichannel AI managers
+- Pricing: Setup €499-5990, subscriptions €69-1499/mo
+- Team: support-server (email agent), demo-chat (website chat), boss-bot (this Telegram bot)
+- Tech: Node.js, Claude API (Haiku/Sonnet), Railway, Cloudflare Pages, Resend, Porkbun IMAP
+- Clients: restaurants, e-commerce, services in LT, VN, PL, FR
+Reply concisely in the same language as the message. Be helpful and proactive.`;
+
+bot.on('message:text', async (ctx) => {
+  if (!claude) return ctx.reply('Claude API не настроен.');
+  try {
+    const r = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 500,
+      system: CEO_PROMPT,
+      messages: [{ role: 'user', content: ctx.message.text }],
+    });
+    await ctx.reply(r.content[0].text);
+  } catch (e) {
+    await ctx.reply('❌ Ошибка Claude: ' + e.message);
+  }
 });
 
-// ─── HTTP API ────────────────────────────────────────────
+// ─── Daily report cron (09:00 Vilnius) ───────────────────
+cron.schedule('0 9 * * *', async () => {
+  try {
+    const text = await getStatText();
+    await bot.api.sendMessage(CHAT_ID, text, { parse_mode: 'MarkdownV2' });
+  } catch (e) {
+    console.error('[cron]', e.message);
+  }
+}, { timezone: 'Europe/Vilnius' });
+
+// ─── HTTP API (webhooks from other services) ─────────────
 const app = express();
 app.use(express.json());
 
@@ -155,59 +240,28 @@ app.post('/lead', async (req, res) => {
     const lead = { name: name || 'Anonymous', email, phone, source: source || 'chat', message, date: Date.now() };
     store.leads.push(lead);
     store.financials.newClients++;
-
-    const text = [
-      `🔔 *Новый лид\\!*`,
-      ``,
-      `👤 ${esc(lead.name)}`,
-      email ? `📧 ${esc(email)}` : null,
-      phone ? `📱 ${esc(phone)}` : null,
-      `📍 Источник: ${esc(lead.source)}`,
-      message ? `💬 ${esc(message.substring(0, 200))}` : null,
-      ``,
-      `📊 Всего лидов: ${store.leads.length}`,
-    ].filter(Boolean).join('\n');
-
-    await send(text);
-    res.json({ ok: true, totalLeads: store.leads.length });
-  } catch (e) {
-    console.error('[/lead]', e.message);
-    res.status(500).json({ ok: false, error: e.message });
-  }
+    await bot.api.sendMessage(CHAT_ID,
+      `🔔 Новый лид!\n\n👤 ${lead.name}\n📧 ${email || '—'}\n📱 ${phone || '—'}\n📍 ${lead.source}\n💬 ${(message || '').substring(0, 200)}`
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.post('/error', async (req, res) => {
   try {
     const { agent, error, severity } = req.body;
-    store.errors.push({ agent, error, severity: severity || 'high', date: Date.now() });
-
-    if (store.agents[agent]) {
-      store.agents[agent].status = '🔴 error';
-    }
-
-    const icon = severity === 'critical' ? '🚨' : '⚠️';
-    const text = [
-      `${icon} *Ошибка агента\\!*`,
-      ``,
-      `🤖 Агент: ${esc(agent || 'unknown')}`,
-      `❌ ${esc((error || 'Unknown error').substring(0, 300))}`,
-      `🔴 Severity: ${esc(severity || 'high')}`,
-    ].join('\n');
-
-    await send(text);
+    store.errors.push({ agent, error, severity, date: Date.now() });
+    if (store.agents[agent]) store.agents[agent].status = '🔴';
+    await bot.api.sendMessage(CHAT_ID,
+      `${severity === 'critical' ? '🚨' : '⚠️'} Ошибка: ${agent}\n❌ ${(error || '').substring(0, 300)}`
+    );
     res.json({ ok: true });
-  } catch (e) {
-    console.error('[/error]', e.message);
-    res.status(500).json({ ok: false, error: e.message });
-  }
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 app.post('/ping', (req, res) => {
   const { agent } = req.body;
-  if (store.agents[agent]) {
-    store.agents[agent].status = '🟢 online';
-    store.agents[agent].lastPing = Date.now();
-  }
+  if (store.agents[agent]) store.agents[agent].status = '🟢';
   res.json({ ok: true });
 });
 
@@ -220,31 +274,18 @@ app.post('/financials', (req, res) => {
   res.json({ ok: true, financials: store.financials });
 });
 
-app.get('/health', (req, res) => res.json({ ok: true, service: 'xplai-boss-bot', uptime: process.uptime() }));
+app.get('/health', (req, res) => res.json({ ok: true, service: 'xplai-boss-bot', uptime: Math.round(process.uptime()) }));
 
 // ─── Start ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-
-// 1. Start HTTP first so Railway sees a healthy port
 app.listen(PORT, () => {
-  console.log(`[HTTP] Listening on port ${PORT}`);
-
-  // 2. Then start Telegram polling with retry logic
-  startPolling();
+  console.log(`[HTTP] Boss bot on port ${PORT}`);
+  bot.api.deleteWebhook({ drop_pending_updates: true }).then(() => {
+    bot.start({ drop_pending_updates: true, allowed_updates: ['message', 'callback_query'], onStart: () => console.log('[TG] Bot started') });
+  }).catch(err => {
+    console.error('[TG]', err.message);
+    setTimeout(() => {
+      bot.api.deleteWebhook({ drop_pending_updates: true }).then(() => bot.start({ drop_pending_updates: true }));
+    }, 10000);
+  });
 });
-
-function startPolling() {
-  bot.api.deleteWebhook({ drop_pending_updates: true })
-    .then(() => {
-      console.log('[TG] Webhook cleared, starting polling...');
-      return bot.start({
-        drop_pending_updates: true,
-        allowed_updates: ['message'],
-        onStart: () => console.log('[TG] Polling started'),
-      });
-    })
-    .catch((err) => {
-      console.error('[TG] Polling crashed, restarting in 10s...', err.message);
-      setTimeout(startPolling, 10000);
-    });
-}
