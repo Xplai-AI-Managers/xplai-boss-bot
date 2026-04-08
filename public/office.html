@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>xplai.eu — Pixel Office</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a1a;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+canvas{display:block;image-rendering:pixelated}
+#hud{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;pointer-events:none;z-index:10}
+#hud .logo{font-size:14px;font-weight:800;color:#fff;background:rgba(83,74,183,.9);padding:4px 12px;border-radius:8px}
+#hud .live{font-size:11px;color:#4ade80;display:flex;align-items:center;gap:4px;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:8px}
+#hud .live::before{content:'';width:6px;height:6px;background:#4ade80;border-radius:50%;animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#tooltip{position:fixed;display:none;background:rgba(15,15,26,.95);border:1px solid #534AB7;color:#e2e8f0;font-size:12px;padding:8px 12px;border-radius:10px;pointer-events:none;z-index:20;max-width:200px;line-height:1.4}
+#status-bar{position:fixed;bottom:0;left:0;right:0;background:rgba(15,15,26,.95);border-top:1px solid #2a2a3e;padding:8px 16px;display:flex;gap:16px;font-size:11px;color:#9ca3af;z-index:10}
+#status-bar span{display:flex;align-items:center;gap:4px}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span class="logo">xplai.eu</span>
+  <span class="live">LIVE</span>
+</div>
+<div id="tooltip"></div>
+<canvas id="c"></canvas>
+<div id="status-bar">
+  <span>🤖 <strong id="sb-agents">3</strong> agents</span>
+  <span>📧 <strong id="sb-emails">—</strong> emails</span>
+  <span>⏱ <strong id="sb-uptime">—</strong></span>
+</div>
+
+<script>
+// ─── Telegram WebApp ─────────────────────────────────
+if (window.Telegram && Telegram.WebApp) {
+  Telegram.WebApp.ready();
+  Telegram.WebApp.expand();
+  if (Telegram.WebApp.colorScheme === 'light') document.body.style.background = '#e8e8f8';
+}
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+let W, H, scale;
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W; canvas.height = H;
+  scale = Math.max(1, Math.floor(Math.min(W, H) / 200));
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── Colors ──────────────────────────────────────────
+const C = {
+  floor: '#1a1a2e', wall: '#0f0f1a', desk: '#2a2a3e', deskTop: '#3a3a4e',
+  monitor: '#111', screen: '#534AB7', screenGlow: 'rgba(83,74,183,.15)',
+  chair: '#333', plant: '#22c55e', plantPot: '#92400e', carpet: '#1e1b4b',
+  window: '#1e293b', windowGlow: '#818cf8', whiteboard: '#f1f5f9',
+};
+
+// ─── Agents ──────────────────────────────────────────
+const agents = [
+  { id:'support', name:'📧 Support Agent', desc:'Email: hello@xplai.eu\nClaude Haiku + Resend', color:'#818cf8', skinColor:'#f0c8a0',
+    x:0.22, y:0.55, deskX:0.22, deskY:0.48, bobSpeed:0.03, phase:0, status:'online', typing:true },
+  { id:'demo', name:'💬 Demo Chat', desc:'Website chat widget\nClaude Haiku', color:'#c084fc', skinColor:'#d4a574',
+    x:0.50, y:0.55, deskX:0.50, deskY:0.48, bobSpeed:0.025, phase:2, status:'online', typing:true },
+  { id:'boss', name:'🤖 Boss Bot', desc:'Telegram dashboard\nClaude CEO assistant', color:'#4ade80', skinColor:'#e8b88a',
+    x:0.78, y:0.55, deskX:0.78, deskY:0.48, bobSpeed:0.035, phase:4, status:'online', typing:false },
+];
+
+let frame = 0;
+let hoveredAgent = null;
+
+// ─── Draw helpers ────────────────────────────────────
+function px(x) { return Math.round(x); }
+
+function drawRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(px(x), px(y), px(w), px(h));
+}
+
+function drawPixelChar(cx, cy, agent, t) {
+  const s = scale * 1.2;
+  const bob = Math.sin(t * agent.bobSpeed + agent.phase) * s * 0.5;
+  const isHovered = hoveredAgent === agent;
+  const glow = isHovered ? 8 : 0;
+
+  // Glow
+  if (glow) {
+    ctx.shadowColor = agent.color;
+    ctx.shadowBlur = glow * scale;
+  }
+
+  // Body
+  drawRect(cx - s*2, cy - s*6 + bob, s*4, s*5, agent.color);
+  // Head
+  drawRect(cx - s*1.5, cy - s*9 + bob, s*3, s*3, agent.skinColor);
+  // Eyes
+  drawRect(cx - s*0.8, cy - s*8 + bob, s*0.6, s*0.6, '#333');
+  drawRect(cx + s*0.3, cy - s*8 + bob, s*0.6, s*0.6, '#333');
+  // Hair
+  drawRect(cx - s*1.5, cy - s*9.5 + bob, s*3, s*1, agent.color);
+
+  // Arms (typing animation)
+  if (agent.typing) {
+    const armL = Math.sin(t * 0.08 + agent.phase) * s * 0.8;
+    const armR = Math.sin(t * 0.08 + agent.phase + 1.5) * s * 0.8;
+    drawRect(cx - s*3, cy - s*4 + bob + armL, s*1, s*2, agent.skinColor);
+    drawRect(cx + s*2, cy - s*4 + bob + armR, s*1, s*2, agent.skinColor);
+  } else {
+    drawRect(cx - s*3, cy - s*4 + bob, s*1, s*3, agent.skinColor);
+    drawRect(cx + s*2, cy - s*4 + bob, s*1, s*3, agent.skinColor);
+  }
+
+  // Status dot
+  const dotColor = agent.status === 'online' ? '#4ade80' : '#ef4444';
+  ctx.beginPath();
+  ctx.arc(cx + s*2, cy - s*10 + bob, s*0.8, 0, Math.PI*2);
+  ctx.fillStyle = dotColor;
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+
+  // Name label
+  if (isHovered) {
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${10*scale/2}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(agent.name, cx, cy - s*11 + bob);
+  }
+}
+
+function drawDesk(x, y) {
+  const s = scale * 1.2;
+  // Desk surface
+  drawRect(x - s*5, y, s*10, s*1.5, C.deskTop);
+  drawRect(x - s*5, y + s*1.5, s*10, s*0.5, C.desk);
+  // Legs
+  drawRect(x - s*4.5, y + s*2, s*1, s*4, C.desk);
+  drawRect(x + s*3.5, y + s*2, s*1, s*4, C.desk);
+  // Monitor
+  drawRect(x - s*2.5, y - s*4, s*5, s*4, C.monitor);
+  drawRect(x - s*2, y - s*3.5, s*4, s*3, C.screen);
+  // Screen glow
+  ctx.fillStyle = C.screenGlow;
+  ctx.fillRect(px(x - s*3), px(y - s*5), px(s*6), px(s*6));
+  // Monitor stand
+  drawRect(x - s*0.5, y, s*1, s*0.5, C.monitor);
+  // Keyboard
+  drawRect(x - s*1.5, y + s*0.5, s*3, s*0.8, '#444');
+}
+
+function drawChair(x, y) {
+  const s = scale * 1.2;
+  drawRect(x - s*2, y + s*2, s*4, s*1, C.chair);
+  drawRect(x - s*2, y - s*2, s*0.8, s*4, C.chair);
+}
+
+// ─── Scene ───────────────────────────────────────────
+function drawScene() {
+  // Floor
+  drawRect(0, H*0.65, W, H*0.35, C.floor);
+
+  // Carpet
+  const carpetW = W * 0.7;
+  drawRect((W - carpetW)/2, H*0.63, carpetW, H*0.2, C.carpet);
+
+  // Back wall
+  drawRect(0, 0, W, H*0.65, C.wall);
+
+  // Windows
+  const winW = W * 0.12;
+  for (let i = 0; i < 3; i++) {
+    const wx = W * 0.2 + i * W * 0.3;
+    drawRect(wx - winW/2, H*0.12, winW, H*0.25, C.window);
+    // Window glow
+    ctx.fillStyle = 'rgba(129,140,248,.06)';
+    ctx.fillRect(px(wx - winW/2 - 10), px(H*0.12 - 10), px(winW + 20), px(H*0.25 + 20));
+    // Panes
+    drawRect(wx - 1, H*0.12, 2, H*0.25, C.wall);
+    drawRect(wx - winW/2, H*0.12 + H*0.125, winW, 2, C.wall);
+    // Stars
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(px(wx - winW*0.3), px(H*0.16), 2, 2);
+    ctx.fillRect(px(wx + winW*0.2), px(H*0.2), 2, 2);
+  }
+
+  // Whiteboard
+  drawRect(W*0.45, H*0.08, W*0.1, H*0.15, C.whiteboard);
+  ctx.fillStyle = '#534AB7';
+  ctx.font = `bold ${8*scale/2}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('xplai.eu', W*0.5, H*0.17);
+
+  // Plants
+  drawPlant(W*0.08, H*0.58);
+  drawPlant(W*0.92, H*0.58);
+
+  // Desks + chairs + agents
+  agents.forEach(a => {
+    const dx = a.deskX * W, dy = a.deskY * H;
+    drawChair(a.x * W, a.y * H);
+    drawDesk(dx, dy);
+    drawPixelChar(a.x * W, a.y * H, a, frame);
+  });
+
+  // Floor line
+  drawRect(0, H*0.65, W, 2, '#2a2a3e');
+}
+
+function drawPlant(x, y) {
+  const s = scale;
+  drawRect(x - s*1.5, y, s*3, s*3, C.plantPot);
+  drawRect(x - s*1, y - s*2, s*2, s*2, C.plant);
+  drawRect(x - s*2, y - s*3, s*1.5, s*2, C.plant);
+  drawRect(x + s*0.5, y - s*3, s*1.5, s*2, C.plant);
+}
+
+// ─── Particles (floating data) ───────────────────────
+const particles = [];
+function spawnParticle(agent) {
+  const ax = agent.deskX * W, ay = agent.deskY * H;
+  particles.push({
+    x: ax + (Math.random()-0.5) * 20,
+    y: ay - scale * 6,
+    vx: (Math.random()-0.5) * 0.5,
+    vy: -0.3 - Math.random() * 0.5,
+    life: 1,
+    char: ['0','1','📧','💬','✓','→'][Math.floor(Math.random()*6)],
+    color: agent.color,
+  });
+}
+
+function drawParticles() {
+  particles.forEach((p, i) => {
+    p.x += p.vx; p.y += p.vy; p.life -= 0.008;
+    if (p.life <= 0) { particles.splice(i, 1); return; }
+    ctx.globalAlpha = p.life * 0.6;
+    ctx.fillStyle = p.color;
+    ctx.font = `${8 * scale/2}px monospace`;
+    ctx.fillText(p.char, p.x, p.y);
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ─── Animation loop ──────────────────────────────────
+function loop() {
+  ctx.clearRect(0, 0, W, H);
+  drawScene();
+  drawParticles();
+
+  // Spawn particles
+  if (frame % 30 === 0) {
+    agents.forEach(a => { if (a.typing && a.status === 'online') spawnParticle(a); });
+  }
+
+  frame++;
+  requestAnimationFrame(loop);
+}
+loop();
+
+// ─── Mouse interaction ───────────────────────────────
+canvas.addEventListener('mousemove', function(e) {
+  hoveredAgent = null;
+  const s = scale * 1.2;
+  agents.forEach(a => {
+    const ax = a.x * W, ay = a.y * H;
+    if (Math.abs(e.clientX - ax) < s*5 && Math.abs(e.clientY - ay) < s*8) {
+      hoveredAgent = a;
+    }
+  });
+  canvas.style.cursor = hoveredAgent ? 'pointer' : 'default';
+});
+
+canvas.addEventListener('click', function(e) {
+  if (!hoveredAgent) return;
+  const a = hoveredAgent;
+  tooltip.style.display = 'block';
+  tooltip.style.left = Math.min(e.clientX + 10, W - 210) + 'px';
+  tooltip.style.top = (e.clientY - 60) + 'px';
+  tooltip.innerHTML = `<strong>${a.name}</strong><br><span style="color:#9ca3af">${a.desc.replace(/\n/g,'<br>')}</span><br><span style="color:${a.status==='online'?'#4ade80':'#ef4444'}">${a.status==='online'?'🟢 Online':'🔴 Offline'}</span>`;
+  setTimeout(() => { tooltip.style.display = 'none'; }, 3000);
+});
+
+// Touch support
+canvas.addEventListener('touchstart', function(e) {
+  const t = e.touches[0];
+  const s = scale * 1.2;
+  agents.forEach(a => {
+    const ax = a.x * W, ay = a.y * H;
+    if (Math.abs(t.clientX - ax) < s*6 && Math.abs(t.clientY - ay) < s*10) {
+      tooltip.style.display = 'block';
+      tooltip.style.left = Math.min(t.clientX + 10, W - 210) + 'px';
+      tooltip.style.top = (t.clientY - 60) + 'px';
+      tooltip.innerHTML = `<strong>${a.name}</strong><br><span style="color:#9ca3af">${a.desc.replace(/\n/g,'<br>')}</span><br><span style="color:${a.status==='online'?'#4ade80':'#ef4444'}">${a.status==='online'?'🟢 Online':'🔴 Offline'}</span>`;
+      setTimeout(() => { tooltip.style.display = 'none'; }, 3000);
+    }
+  });
+});
+
+// ─── Live data ───────────────────────────────────────
+async function fetchStatus() {
+  try {
+    const r = await fetch('/api/support/health');
+    const d = await r.json();
+    const s = d.stats || {};
+    document.getElementById('sb-emails').textContent = s.processed || 0;
+    const up = d.uptime || d.uptimeSeconds || 0;
+    document.getElementById('sb-uptime').textContent = Math.floor(up/3600) + 'h ' + Math.floor((up%3600)/60) + 'm';
+    agents[0].status = d.ok ? 'online' : 'offline';
+    agents[0].typing = d.ok;
+  } catch(e) {
+    agents[0].status = 'offline';
+    agents[0].typing = false;
+  }
+  try {
+    const r = await fetch('/api/demo/health');
+    const d = await r.json();
+    agents[1].status = d.ok ? 'online' : 'offline';
+    agents[1].typing = d.ok;
+  } catch(e) {
+    agents[1].status = 'offline';
+    agents[1].typing = false;
+  }
+}
+fetchStatus();
+setInterval(fetchStatus, 30000);
+</script>
+</body>
+</html>

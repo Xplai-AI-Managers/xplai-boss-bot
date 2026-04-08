@@ -53,7 +53,8 @@ async function checkService(url) {
 bot.command('start', async (ctx) => {
   const kb = new InlineKeyboard();
   if (WEBAPP_URL) {
-    kb.webApp('🚀 Открыть дашборд', WEBAPP_URL).row();
+    kb.webApp('🚀 Дашборд', WEBAPP_URL + '/index.html')
+      .webApp('🎮 Офис LIVE', WEBAPP_URL + '/office.html').row();
   }
   kb.text('📊 Статистика', 'stat').text('🤖 Агенты', 'agents').row()
     .text('📧 Последние письма', 'emails').text('⚙️ Здоровье', 'health');
@@ -63,6 +64,12 @@ bot.command('start', async (ctx) => {
     'Добро пожаловать, босс\\! Выбери действие:',
     { parse_mode: 'MarkdownV2', reply_markup: kb }
   );
+});
+
+bot.command('office', async (ctx) => {
+  if (!WEBAPP_URL) return ctx.reply('URL не настроен');
+  const kb = new InlineKeyboard().webApp('🎮 Смотреть офис LIVE', WEBAPP_URL + '/office.html');
+  await ctx.reply('Открываю пиксельный офис xplai.eu...', { reply_markup: kb });
 });
 
 // ─── /stat — live statistics ─────────────────────────────
