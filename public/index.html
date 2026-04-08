@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>xplai.eu Dashboard</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f0f1a;--card:#1a1a2e;--border:#2a2a3e;--primary:#534AB7;--green:#4ade80;--red:#ef4444;--text:#e2e8f0;--muted:#9ca3af;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:70px}
+
+/* Header */
+.header{padding:16px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.header img{height:32px}
+.header h1{font-size:18px;font-weight:700}
+.header .badge{background:var(--primary);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;margin-left:auto}
+
+/* Cards */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:16px 20px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;text-align:center}
+.card .num{font-size:24px;font-weight:800;color:var(--primary);margin:4px 0}
+.card .lbl{font-size:11px;color:var(--muted)}
+.card.green .num{color:var(--green)}
+.card.red .num{color:var(--red)}
+
+/* Screens */
+.screen{display:none;padding:16px 20px}
+.screen.active{display:block}
+.screen h2{font-size:16px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* Agent list */
+.agent{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.agent .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.agent .dot.on{background:var(--green)}
+.agent .dot.off{background:var(--red)}
+.agent .info{flex:1}
+.agent .name{font-size:14px;font-weight:600}
+.agent .meta{font-size:12px;color:var(--muted)}
+
+/* Email list */
+.email-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.email-item .icon{font-size:18px;flex-shrink:0}
+.email-item .from{font-size:13px;font-weight:600}
+.email-item .subj{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.email-item .time{font-size:11px;color:var(--muted);margin-left:auto;flex-shrink:0}
+
+/* Chart */
+.chart-wrap{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
+.stat-row{display:flex;gap:10px;margin-bottom:14px}
+.stat-box{flex:1;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
+.stat-box .val{font-size:20px;font-weight:800;color:var(--primary)}
+.stat-box .lbl{font-size:11px;color:var(--muted)}
+
+/* Chat */
+.chat-messages{max-height:calc(100vh - 240px);overflow-y:auto;padding-bottom:10px}
+.chat-msg{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:8px;font-size:13px;line-height:1.5}
+.chat-msg.user{background:var(--primary);border-color:var(--primary);margin-left:40px}
+.chat-msg.bot{margin-right:40px}
+.chat-input-row{display:flex;gap:8px;margin-top:12px}
+.chat-input-row input{flex:1;background:var(--card);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:12px;font-size:14px;outline:none;font-family:var(--font)}
+.chat-input-row input:focus{border-color:var(--primary)}
+.chat-input-row button{background:var(--primary);border:none;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;cursor:pointer}
+
+/* Tab bar */
+.tabbar{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;padding:8px 0;padding-bottom:max(8px,env(safe-area-inset-bottom))}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;color:var(--muted);font-size:10px;cursor:pointer;padding:4px 0;font-family:var(--font)}
+.tab .ico{font-size:20px}
+.tab.active{color:var(--primary)}
+
+/* Loading */
+.loading{text-align:center;padding:40px;color:var(--muted)}
+.spinner{display:inline-block;width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <img src="https://xplai.eu/logo.png" alt="xplai">
+  <h1>Dashboard</h1>
+  <span class="badge">LIVE</span>
+</div>
+
+<!-- Dashboard -->
+<div class="screen active" id="s-dash">
+  <div class="cards">
+    <div class="card"><div class="lbl">Писем</div><div class="num" id="d-processed">—</div><div class="lbl">сегодня</div></div>
+    <div class="card green"><div class="lbl">Ответов</div><div class="num" id="d-replied">—</div><div class="lbl">отправлено</div></div>
+    <div class="card"><div class="lbl">Uptime</div><div class="num" id="d-uptime">—</div><div class="lbl">support</div></div>
+  </div>
+  <div style="padding:0 20px">
+    <div class="chart-wrap"><canvas id="dashChart" height="160"></canvas></div>
+  </div>
+  <div class="cards" style="padding-top:0">
+    <div class="card"><div class="lbl">Спам</div><div class="num red" id="d-spam">—</div></div>
+    <div class="card"><div class="lbl">Ошибки</div><div class="num red" id="d-errors">—</div></div>
+    <div class="card green"><div class="lbl">Лидов</div><div class="num" id="d-leads">—</div></div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="screen" id="s-stats">
+  <h2>📊 Статистика</h2>
+  <div class="stat-row">
+    <div class="stat-box"><div class="val" id="st-rate">—</div><div class="lbl">% ответов</div></div>
+    <div class="stat-box"><div class="val" id="st-avg">—</div><div class="lbl">сек. ответ</div></div>
+  </div>
+  <div class="chart-wrap"><canvas id="statsChart" height="200"></canvas></div>
+</div>
+
+<!-- Agents -->
+<div class="screen" id="s-agents">
+  <h2>🤖 Агенты</h2>
+  <div id="agents-list"><div class="loading"><div class="spinner"></div><br>Загрузка...</div></div>
+</div>
+
+<!-- Emails -->
+<div class="screen" id="s-emails">
+  <h2>📧 Последние письма</h2>
+  <div id="emails-list"><div class="loading"><div class="spinner"></div><br>Загрузка...</div></div>
+</div>
+
+<!-- Chat -->
+<div class="screen" id="s-chat">
+  <h2>💬 CEO Ассистент</h2>
+  <div class="chat-messages" id="chat-msgs"></div>
+  <div class="chat-input-row">
+    <input id="chat-input" placeholder="Спроси о бизнесе..." maxlength="500">
+    <button onclick="sendChat()">→</button>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div class="tabbar">
+  <button class="tab active" onclick="showTab('dash')"><span class="ico">📊</span>Дашборд</button>
+  <button class="tab" onclick="showTab('agents')"><span class="ico">🤖</span>Агенты</button>
+  <button class="tab" onclick="showTab('emails')"><span class="ico">📧</span>Письма</button>
+  <button class="tab" onclick="showTab('chat')"><span class="ico">💬</span>Чат</button>
+</div>
+
+<script>
+const SUPPORT = '/api/support';
+const DEMO = '/api/demo';
+const CHAT_API = '/api/chat';
+
+// ─── Telegram WebApp ─────────────────────────────────
+if (window.Telegram && Telegram.WebApp) {
+  Telegram.WebApp.ready();
+  Telegram.WebApp.expand();
+  document.documentElement.style.setProperty('--bg', Telegram.WebApp.themeParams.bg_color || '#0f0f1a');
+}
+
+// ─── Navigation ──────────────────────────────────────
+function showTab(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('s-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name === 'dash') loadDash();
+  if (name === 'agents') loadAgents();
+  if (name === 'emails') loadEmails();
+  if (name === 'stats') loadStats();
+}
+
+// ─── Dashboard ───────────────────────────────────────
+let dashChart = null;
+async function loadDash() {
+  try {
+    const r = await fetch(SUPPORT + '/health');
+    const d = await r.json();
+    const s = d.stats || {};
+    document.getElementById('d-processed').textContent = s.processed || 0;
+    document.getElementById('d-replied').textContent = s.replied || 0;
+    document.getElementById('d-spam').textContent = s.spam || 0;
+    document.getElementById('d-errors').textContent = s.errors || 0;
+    document.getElementById('d-leads').textContent = s.activeConversations || 0;
+    const up = d.uptime || d.uptimeSeconds || 0;
+    const h = Math.floor(up / 3600);
+    const m = Math.floor((up % 3600) / 60);
+    document.getElementById('d-uptime').textContent = h + 'h' + m + 'm';
+
+    // Mini chart
+    if (!dashChart) {
+      const ctx = document.getElementById('dashChart').getContext('2d');
+      dashChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'],
+          datasets: [{
+            label: 'Письма',
+            data: [s.processed||0, 0, 0, 0, 0, 0, 0],
+            backgroundColor: '#534AB7',
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 10 } } },
+            y: { grid: { color: '#2a2a3e' }, ticks: { color: '#9ca3af', font: { size: 10 } } },
+          }
+        }
+      });
+    }
+  } catch (e) {
+    document.getElementById('d-processed').textContent = '!';
+  }
+}
+
+// ─── Agents ──────────────────────────────────────────
+async function loadAgents() {
+  const el = document.getElementById('agents-list');
+  try {
+    const [sup, dem] = await Promise.all([
+      fetch(SUPPORT + '/health').then(r => r.json()).catch(() => null),
+      fetch(DEMO + '/health').then(r => r.json()).catch(() => null),
+    ]);
+
+    function fmt(s) { if (!s) return '—'; const h=Math.floor(s/3600); const m=Math.floor((s%3600)/60); return h+'h '+m+'m'; }
+
+    el.innerHTML = [
+      agentHtml('support-server', '📧 Email Agent', sup?.ok, fmt(sup?.uptime || sup?.uptimeSeconds), 'IMAP + Claude Haiku + Resend'),
+      agentHtml('demo-chat', '💬 Demo Chat', dem?.ok, fmt(dem?.uptime || dem?.uptimeSeconds), 'Claude Haiku — website chat'),
+      agentHtml('boss-bot', '🤖 Boss Bot', true, fmt(Math.round(performance.now()/1000)), 'Telegram dashboard'),
+    ].join('');
+  } catch (e) {
+    el.innerHTML = '<div class="loading">❌ Ошибка загрузки</div>';
+  }
+}
+
+function agentHtml(id, name, ok, uptime, desc) {
+  return `<div class="agent">
+    <div class="dot ${ok ? 'on' : 'off'}"></div>
+    <div class="info"><div class="name">${name}</div><div class="meta">${desc} — ${uptime}</div></div>
+    <span style="font-size:12px;color:${ok ? 'var(--green)' : 'var(--red)'}">${ok ? 'ONLINE' : 'OFFLINE'}</span>
+  </div>`;
+}
+
+// ─── Emails ──────────────────────────────────────────
+async function loadEmails() {
+  const el = document.getElementById('emails-list');
+  try {
+    const r = await fetch(SUPPORT + '/log');
+    const logs = await r.json();
+    if (!logs || logs.length === 0) { el.innerHTML = '<div class="loading">Нет писем</div>'; return; }
+    el.innerHTML = logs.slice(0, 10).map(l => {
+      const icon = l.action === 'REPLIED' ? '✅' : l.action === 'EMAIL_SENT' ? '📤' : l.action === 'ERROR' ? '❌' : l.action === 'SPAM' ? '🚫' : '📩';
+      const time = l.time ? new Date(l.time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
+      return `<div class="email-item">
+        <div class="icon">${icon}</div>
+        <div style="min-width:0;flex:1"><div class="from">${esc(l.from || '?')}</div><div class="subj">${esc(l.reason || l.subject || l.action)}</div></div>
+        <div class="time">${time}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = '<div class="loading">❌ Ошибка</div>';
+  }
+}
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ─── Stats ───────────────────────────────────────────
+let statsChart = null;
+async function loadStats() {
+  try {
+    const r = await fetch(SUPPORT + '/health');
+    const d = await r.json();
+    const s = d.stats || {};
+    const rate = s.processed > 0 ? Math.round((s.replied / s.processed) * 100) : 0;
+    document.getElementById('st-rate').textContent = rate + '%';
+    document.getElementById('st-avg').textContent = '~3';
+
+    if (!statsChart) {
+      const ctx = document.getElementById('statsChart').getContext('2d');
+      statsChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Ответы', 'Спам', 'Ошибки', 'Пропущено'],
+          datasets: [{ data: [s.replied||0, s.spam||0, s.errors||0, s.skipped||0], backgroundColor: ['#534AB7','#ef4444','#f59e0b','#6b7280'], borderWidth: 0 }]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#9ca3af', font: { size: 11 } } } } }
+      });
+    }
+  } catch (e) {}
+}
+
+// ─── Chat ────────────────────────────────────────────
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  const msgs = document.getElementById('chat-msgs');
+  msgs.innerHTML += `<div class="chat-msg user">${esc(text)}</div>`;
+  msgs.innerHTML += `<div class="chat-msg bot" id="typing"><span class="spinner" style="width:16px;height:16px;border-width:2px"></span></div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+
+  try {
+    const r = await fetch(CHAT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    const d = await r.json();
+    document.getElementById('typing').remove();
+    msgs.innerHTML += `<div class="chat-msg bot">${esc(d.reply || 'Ошибка')}</div>`;
+  } catch (e) {
+    document.getElementById('typing').remove();
+    msgs.innerHTML += `<div class="chat-msg bot">❌ ${esc(e.message)}</div>`;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+document.getElementById('chat-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') sendChat();
+});
+
+// ─── Init ────────────────────────────────────────────
+loadDash();
+</script>
+</body>
+</html>

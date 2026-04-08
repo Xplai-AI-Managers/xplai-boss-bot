@@ -1,6 +1,7 @@
 const { Bot, InlineKeyboard } = require('grammy');
 const cron = require('node-cron');
 const express = require('express');
+const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 
 process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err?.message || err));
@@ -12,6 +13,7 @@ const CHAT_ID = process.env.CHAT_ID || '6696661524';
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const SUPPORT_URL = process.env.SUPPORT_URL || 'https://support-server-production-0981.up.railway.app';
 const DEMO_URL = process.env.DEMO_URL || 'https://demo-chat-production-272b.up.railway.app';
+let WEBAPP_URL = process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : '';
 
 if (!BOT_TOKEN) { console.error('BOT_TOKEN required'); process.exit(1); }
 
@@ -48,15 +50,18 @@ async function checkService(url) {
 }
 
 // ─── /start — dashboard menu ─────────────────────────────
-const mainMenu = new InlineKeyboard()
-  .text('📊 Статистика', 'stat').text('🤖 Агенты', 'agents').row()
-  .text('📧 Последние письма', 'emails').text('⚙️ Здоровье', 'health');
-
 bot.command('start', async (ctx) => {
+  const kb = new InlineKeyboard();
+  if (WEBAPP_URL) {
+    kb.webApp('🚀 Открыть дашборд', WEBAPP_URL).row();
+  }
+  kb.text('📊 Статистика', 'stat').text('🤖 Агенты', 'agents').row()
+    .text('📧 Последние письма', 'emails').text('⚙️ Здоровье', 'health');
+
   await ctx.reply(
     '🏢 *xplai\\.eu — Панель управления*\n\n' +
     'Добро пожаловать, босс\\! Выбери действие:',
-    { parse_mode: 'MarkdownV2', reply_markup: mainMenu }
+    { parse_mode: 'MarkdownV2', reply_markup: kb }
   );
 });
 
@@ -275,6 +280,38 @@ app.post('/financials', (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true, service: 'xplai-boss-bot', uptime: Math.round(process.uptime()) }));
+
+// ─── Mini App: API proxy (avoids CORS issues) ───────────
+app.get('/api/support/:path', async (req, res) => {
+  try {
+    const r = await fetch(SUPPORT_URL + '/' + req.params.path, { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    res.json(d);
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+app.get('/api/demo/:path', async (req, res) => {
+  try {
+    const r = await fetch(DEMO_URL + '/' + req.params.path, { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    res.json(d);
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
+
+app.post('/api/chat', async (req, res) => {
+  if (!claude) return res.json({ reply: 'Claude API не настроен.' });
+  try {
+    const r = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 500,
+      system: CEO_PROMPT,
+      messages: [{ role: 'user', content: req.body.message || '' }],
+    });
+    res.json({ reply: r.content[0].text });
+  } catch (e) { res.json({ reply: '❌ ' + e.message }); }
+});
+
+// ─── Static files for Mini App ───────────────────────────
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Start ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
