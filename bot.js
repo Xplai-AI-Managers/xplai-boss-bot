@@ -2,7 +2,20 @@ const { Bot, InlineKeyboard } = require('grammy');
 const cron = require('node-cron');
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const Anthropic = require('@anthropic-ai/sdk');
+
+// Optional: Claude Code SDK (may fail to load on Railway — catch)
+let claudeCodeQuery = null;
+try {
+  claudeCodeQuery = require('@anthropic-ai/claude-code').query;
+} catch (e) {
+  console.error('[claude-code]', 'SDK not available:', e.message);
+}
+
+// Task storage
+const TASKS_DIR = process.env.TASKS_DIR || '/tmp/xplai-tasks';
+try { fs.mkdirSync(TASKS_DIR, { recursive: true }); } catch (e) {}
 
 process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err?.message || err));
 process.on('uncaughtException', (err) => console.error('[uncaughtException]', err?.message || err));
@@ -217,14 +230,70 @@ You know everything about xplai.eu:
 - Clients: restaurants, e-commerce, services in LT, VN, PL, FR
 Reply concisely in the same language as the message. Be helpful and proactive.`;
 
+// ─── Run task via Claude Code SDK ────────────────────────
+async function runClaudeCodeTask(taskText) {
+  if (!claudeCodeQuery) return '❌ Claude Code SDK недоступен в этой среде.';
+  try {
+    let finalResult = '';
+    for await (const message of claudeCodeQuery({
+      prompt: taskText,
+      options: { maxTurns: 10 },
+    })) {
+      if (message.type === 'result') {
+        finalResult = message.result || '';
+      }
+    }
+    return finalResult || '✓ Задача выполнена (без текстового вывода)';
+  } catch (e) {
+    return '❌ Ошибка: ' + (e.message || String(e));
+  }
+}
+
 bot.on('message:text', async (ctx) => {
+  const text = ctx.message.text || '';
+  const fromId = String(ctx.chat.id);
+
+  // Task execution — only for authorized owner
+  const taskMatch = text.match(/^\s*(задача:|сделай:)\s*(.+)$/is);
+  if (taskMatch && fromId === CHAT_ID) {
+    const taskText = taskMatch[2].trim();
+
+    // Save task to file
+    const ts = Date.now();
+    const filename = path.join(TASKS_DIR, `task_${ts}.md`);
+    try {
+      fs.writeFileSync(filename, `# Task ${new Date().toISOString()}\n\n${taskText}\n`);
+    } catch (e) { console.error('[task save]', e.message); }
+
+    await ctx.reply('⚙️ Задача принята, выполняю...');
+
+    const result = await runClaudeCodeTask(taskText);
+
+    // Save result
+    try {
+      fs.writeFileSync(filename.replace('.md', '_result.md'), result);
+    } catch (e) {}
+
+    // Reply (chunked if too long)
+    const max = 3800;
+    const short = result.length > max ? result.substring(0, max) + '\n\n...(обрезано)' : result;
+    await ctx.reply('✅ Готово!\n\n' + short);
+    return;
+  }
+
+  // Unauthorized task attempt
+  if (taskMatch && fromId !== CHAT_ID) {
+    return ctx.reply('🔒 Недостаточно прав для запуска задач.');
+  }
+
+  // Regular CEO assistant chat
   if (!claude) return ctx.reply('Claude API не настроен.');
   try {
     const r = await claude.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 500,
       system: CEO_PROMPT,
-      messages: [{ role: 'user', content: ctx.message.text }],
+      messages: [{ role: 'user', content: text }],
     });
     await ctx.reply(r.content[0].text);
   } catch (e) {
