@@ -7,254 +7,420 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0a1a;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
-canvas{display:block;image-rendering:pixelated}
-#hud{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;pointer-events:none;z-index:10}
-#hud .logo{font-size:14px;font-weight:800;color:#fff;background:rgba(83,74,183,.9);padding:4px 12px;border-radius:8px}
-#hud .live{font-size:11px;color:#4ade80;display:flex;align-items:center;gap:4px;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:8px}
-#hud .live::before{content:'';width:6px;height:6px;background:#4ade80;border-radius:50%;animation:blink 1.5s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-#tooltip{position:fixed;display:none;background:rgba(15,15,26,.95);border:1px solid #534AB7;color:#e2e8f0;font-size:12px;padding:8px 12px;border-radius:10px;pointer-events:none;z-index:20;max-width:200px;line-height:1.4}
-#status-bar{position:fixed;bottom:0;left:0;right:0;background:rgba(15,15,26,.95);border-top:1px solid #2a2a3e;padding:8px 16px;display:flex;gap:16px;font-size:11px;color:#9ca3af;z-index:10}
-#status-bar span{display:flex;align-items:center;gap:4px}
+body{background:#080810;overflow:hidden;font-family:'SF Pro','Segoe UI',sans-serif}
+canvas{display:block}
+#hud{position:fixed;top:0;left:0;right:0;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;z-index:10;background:linear-gradient(180deg,rgba(8,8,16,.9) 0%,transparent 100%)}
+.hud-logo{display:flex;align-items:center;gap:8px}
+.hud-logo img{height:22px;border-radius:4px}
+.hud-logo span{font-size:15px;font-weight:800;color:#fff;letter-spacing:-.5px}
+.hud-badge{font-size:9px;color:#4ade80;background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);padding:2px 8px;border-radius:10px;display:flex;align-items:center;gap:4px;text-transform:uppercase;font-weight:700;letter-spacing:.5px}
+.hud-badge::before{content:'';width:5px;height:5px;background:#4ade80;border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+#info-panel{position:fixed;display:none;z-index:30;pointer-events:none}
+.info-card{background:rgba(15,15,26,.97);backdrop-filter:blur(16px);border:1px solid rgba(83,74,183,.5);border-radius:16px;padding:16px 20px;min-width:220px;box-shadow:0 20px 60px rgba(0,0,0,.6),0 0 40px rgba(83,74,183,.15)}
+.info-card .ic-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.info-card .ic-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.info-card .ic-name{font-size:14px;font-weight:700;color:#fff}
+.info-card .ic-role{font-size:11px;color:#9ca3af}
+.info-card .ic-stats{display:flex;gap:12px;margin:10px 0;padding:8px 0;border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06)}
+.info-card .ic-stat{text-align:center;flex:1}
+.info-card .ic-stat .num{font-size:16px;font-weight:800;color:#534AB7}
+.info-card .ic-stat .lbl{font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px}
+.info-card .ic-status{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:4px}
+.info-card .ic-dot{width:8px;height:8px;border-radius:50%}
+#status-bar{position:fixed;bottom:0;left:0;right:0;background:rgba(15,15,26,.95);backdrop-filter:blur(8px);border-top:1px solid rgba(255,255,255,.06);padding:10px 20px;display:flex;justify-content:space-around;font-size:11px;color:#6b7280;z-index:10}
+.sb-item{display:flex;flex-direction:column;align-items:center;gap:2px}
+.sb-item .sb-val{font-size:16px;font-weight:800;color:#e2e8f0}
+.sb-item .sb-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.5px}
 </style>
 </head>
 <body>
 <div id="hud">
-  <span class="logo">xplai.eu</span>
-  <span class="live">LIVE</span>
+  <div class="hud-logo"><img src="https://xplai.eu/logo.png" alt="xplai"><span>Pixel Office</span></div>
+  <div class="hud-badge">Live</div>
 </div>
-<div id="tooltip"></div>
+
+<div id="info-panel"><div class="info-card" id="info-card"></div></div>
 <canvas id="c"></canvas>
+
 <div id="status-bar">
-  <span>🤖 <strong id="sb-agents">3</strong> agents</span>
-  <span>📧 <strong id="sb-emails">—</strong> emails</span>
-  <span>⏱ <strong id="sb-uptime">—</strong></span>
+  <div class="sb-item"><div class="sb-val" id="sb-agents">3</div><div class="sb-lbl">agents online</div></div>
+  <div class="sb-item"><div class="sb-val" id="sb-emails">—</div><div class="sb-lbl">emails today</div></div>
+  <div class="sb-item"><div class="sb-val" id="sb-uptime">—</div><div class="sb-lbl">uptime</div></div>
+  <div class="sb-item"><div class="sb-val" id="sb-replied">—</div><div class="sb-lbl">replies sent</div></div>
 </div>
 
 <script>
-// ─── Telegram WebApp ─────────────────────────────────
-if (window.Telegram && Telegram.WebApp) {
-  Telegram.WebApp.ready();
-  Telegram.WebApp.expand();
-  if (Telegram.WebApp.colorScheme === 'light') document.body.style.background = '#e8e8f8';
-}
+if (window.Telegram && Telegram.WebApp) { Telegram.WebApp.ready(); Telegram.WebApp.expand(); }
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-const tooltip = document.getElementById('tooltip');
-let W, H, scale;
+let W, H;
 
 function resize() {
-  W = window.innerWidth; H = window.innerHeight;
-  canvas.width = W; canvas.height = H;
-  scale = Math.max(1, Math.floor(Math.min(W, H) / 200));
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
 }
 resize();
 window.addEventListener('resize', resize);
 
-// ─── Colors ──────────────────────────────────────────
-const C = {
-  floor: '#1a1a2e', wall: '#0f0f1a', desk: '#2a2a3e', deskTop: '#3a3a4e',
-  monitor: '#111', screen: '#534AB7', screenGlow: 'rgba(83,74,183,.15)',
-  chair: '#333', plant: '#22c55e', plantPot: '#92400e', carpet: '#1e1b4b',
-  window: '#1e293b', windowGlow: '#818cf8', whiteboard: '#f1f5f9',
-};
+// ─── Config ──────────────────────────────────────────
+const FLOOR_Y = 0.58;
+const WALL_COLOR = '#0c0c1e';
+const FLOOR_COLOR = '#12122a';
 
-// ─── Agents ──────────────────────────────────────────
 const agents = [
-  { id:'support', name:'📧 Support Agent', desc:'Email: hello@xplai.eu\nClaude Haiku + Resend', color:'#818cf8', skinColor:'#f0c8a0',
-    x:0.22, y:0.55, deskX:0.22, deskY:0.48, bobSpeed:0.03, phase:0, status:'online', typing:true },
-  { id:'demo', name:'💬 Demo Chat', desc:'Website chat widget\nClaude Haiku', color:'#c084fc', skinColor:'#d4a574',
-    x:0.50, y:0.55, deskX:0.50, deskY:0.48, bobSpeed:0.025, phase:2, status:'online', typing:true },
-  { id:'boss', name:'🤖 Boss Bot', desc:'Telegram dashboard\nClaude CEO assistant', color:'#4ade80', skinColor:'#e8b88a',
-    x:0.78, y:0.55, deskX:0.78, deskY:0.48, bobSpeed:0.035, phase:4, status:'online', typing:false },
+  { id:'support', label:'SUPPORT', name:'📧 Email Agent', role:'hello@xplai.eu',
+    desc:'Reads IMAP every 5 min\nReplies via Claude Haiku\nSends through Resend API',
+    color:'#818cf8', accent:'#6366f1', skinColor:'#f0c8a0', hair:'#4a3728',
+    x:0.18, deskX:0.18, bobSpeed:0.025, phase:0, status:'online', typing:true,
+    screenIcon:'📧', stats:{processed:0, replied:0} },
+  { id:'demo', label:'DEMO CHAT', name:'💬 Website Chat', role:'xplai.eu/demo',
+    desc:'Iframe chat widget\nClaude Haiku brain\n6 languages supported',
+    color:'#c084fc', accent:'#a855f7', skinColor:'#d4a574', hair:'#2c1810',
+    x:0.50, deskX:0.50, bobSpeed:0.022, phase:2, status:'online', typing:true,
+    screenIcon:'💬', stats:{sessions:0} },
+  { id:'boss', label:'BOSS BOT', name:'🤖 Telegram Bot', role:'@xplai_boss_bot',
+    desc:'Dashboard & commands\nClaude CEO assistant\nPixel Office you see now!',
+    color:'#4ade80', accent:'#22c55e', skinColor:'#e8b88a', hair:'#1a1a2e',
+    x:0.82, deskX:0.82, bobSpeed:0.03, phase:4, status:'online', typing:false,
+    screenIcon:'🤖', stats:{} },
 ];
 
 let frame = 0;
 let hoveredAgent = null;
+let selectedAgent = null;
 
-// ─── Draw helpers ────────────────────────────────────
-function px(x) { return Math.round(x); }
+// ─── Drawing ─────────────────────────────────────────
+function S(v) { return v * Math.min(W, H) / 400; } // scale helper
 
-function drawRect(x, y, w, h, color) {
+function drawRoundRect(x, y, w, h, r, color) {
   ctx.fillStyle = color;
-  ctx.fillRect(px(x), px(y), px(w), px(h));
-}
-
-function drawPixelChar(cx, cy, agent, t) {
-  const s = scale * 1.2;
-  const bob = Math.sin(t * agent.bobSpeed + agent.phase) * s * 0.5;
-  const isHovered = hoveredAgent === agent;
-  const glow = isHovered ? 8 : 0;
-
-  // Glow
-  if (glow) {
-    ctx.shadowColor = agent.color;
-    ctx.shadowBlur = glow * scale;
-  }
-
-  // Body
-  drawRect(cx - s*2, cy - s*6 + bob, s*4, s*5, agent.color);
-  // Head
-  drawRect(cx - s*1.5, cy - s*9 + bob, s*3, s*3, agent.skinColor);
-  // Eyes
-  drawRect(cx - s*0.8, cy - s*8 + bob, s*0.6, s*0.6, '#333');
-  drawRect(cx + s*0.3, cy - s*8 + bob, s*0.6, s*0.6, '#333');
-  // Hair
-  drawRect(cx - s*1.5, cy - s*9.5 + bob, s*3, s*1, agent.color);
-
-  // Arms (typing animation)
-  if (agent.typing) {
-    const armL = Math.sin(t * 0.08 + agent.phase) * s * 0.8;
-    const armR = Math.sin(t * 0.08 + agent.phase + 1.5) * s * 0.8;
-    drawRect(cx - s*3, cy - s*4 + bob + armL, s*1, s*2, agent.skinColor);
-    drawRect(cx + s*2, cy - s*4 + bob + armR, s*1, s*2, agent.skinColor);
-  } else {
-    drawRect(cx - s*3, cy - s*4 + bob, s*1, s*3, agent.skinColor);
-    drawRect(cx + s*2, cy - s*4 + bob, s*1, s*3, agent.skinColor);
-  }
-
-  // Status dot
-  const dotColor = agent.status === 'online' ? '#4ade80' : '#ef4444';
   ctx.beginPath();
-  ctx.arc(cx + s*2, cy - s*10 + bob, s*0.8, 0, Math.PI*2);
-  ctx.fillStyle = dotColor;
+  ctx.roundRect(px(x), px(y), px(w), px(h), r * Math.min(W,H)/400);
   ctx.fill();
-
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-
-  // Name label
-  if (isHovered) {
-    ctx.fillStyle = '#fff';
-    ctx.font = `bold ${10*scale/2}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(agent.name, cx, cy - s*11 + bob);
-  }
 }
+function px(v) { return Math.round(v); }
+function rect(x,y,w,h,c) { ctx.fillStyle=c; ctx.fillRect(px(x),px(y),px(w),px(h)); }
 
-function drawDesk(x, y) {
-  const s = scale * 1.2;
-  // Desk surface
-  drawRect(x - s*5, y, s*10, s*1.5, C.deskTop);
-  drawRect(x - s*5, y + s*1.5, s*10, s*0.5, C.desk);
-  // Legs
-  drawRect(x - s*4.5, y + s*2, s*1, s*4, C.desk);
-  drawRect(x + s*3.5, y + s*2, s*1, s*4, C.desk);
-  // Monitor
-  drawRect(x - s*2.5, y - s*4, s*5, s*4, C.monitor);
-  drawRect(x - s*2, y - s*3.5, s*4, s*3, C.screen);
-  // Screen glow
-  ctx.fillStyle = C.screenGlow;
-  ctx.fillRect(px(x - s*3), px(y - s*5), px(s*6), px(s*6));
-  // Monitor stand
-  drawRect(x - s*0.5, y, s*1, s*0.5, C.monitor);
-  // Keyboard
-  drawRect(x - s*1.5, y + s*0.5, s*3, s*0.8, '#444');
-}
+// ─── Room ────────────────────────────────────────────
+function drawRoom() {
+  // Wall gradient
+  const g = ctx.createLinearGradient(0, 0, 0, H * FLOOR_Y);
+  g.addColorStop(0, '#0a0a18');
+  g.addColorStop(1, '#0f0f22');
+  rect(0, 0, W, H * FLOOR_Y, '#000');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H * FLOOR_Y);
 
-function drawChair(x, y) {
-  const s = scale * 1.2;
-  drawRect(x - s*2, y + s*2, s*4, s*1, C.chair);
-  drawRect(x - s*2, y - s*2, s*0.8, s*4, C.chair);
-}
-
-// ─── Scene ───────────────────────────────────────────
-function drawScene() {
-  // Floor
-  drawRect(0, H*0.65, W, H*0.35, C.floor);
+  // Floor gradient
+  const fg = ctx.createLinearGradient(0, H*FLOOR_Y, 0, H);
+  fg.addColorStop(0, '#14142e');
+  fg.addColorStop(1, '#0a0a1a');
+  ctx.fillStyle = fg; ctx.fillRect(0, H*FLOOR_Y, W, H);
 
   // Carpet
-  const carpetW = W * 0.7;
-  drawRect((W - carpetW)/2, H*0.63, carpetW, H*0.2, C.carpet);
-
-  // Back wall
-  drawRect(0, 0, W, H*0.65, C.wall);
-
-  // Windows
-  const winW = W * 0.12;
-  for (let i = 0; i < 3; i++) {
-    const wx = W * 0.2 + i * W * 0.3;
-    drawRect(wx - winW/2, H*0.12, winW, H*0.25, C.window);
-    // Window glow
-    ctx.fillStyle = 'rgba(129,140,248,.06)';
-    ctx.fillRect(px(wx - winW/2 - 10), px(H*0.12 - 10), px(winW + 20), px(H*0.25 + 20));
-    // Panes
-    drawRect(wx - 1, H*0.12, 2, H*0.25, C.wall);
-    drawRect(wx - winW/2, H*0.12 + H*0.125, winW, 2, C.wall);
-    // Stars
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(px(wx - winW*0.3), px(H*0.16), 2, 2);
-    ctx.fillRect(px(wx + winW*0.2), px(H*0.2), 2, 2);
-  }
-
-  // Whiteboard
-  drawRect(W*0.45, H*0.08, W*0.1, H*0.15, C.whiteboard);
-  ctx.fillStyle = '#534AB7';
-  ctx.font = `bold ${8*scale/2}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('xplai.eu', W*0.5, H*0.17);
-
-  // Plants
-  drawPlant(W*0.08, H*0.58);
-  drawPlant(W*0.92, H*0.58);
-
-  // Desks + chairs + agents
-  agents.forEach(a => {
-    const dx = a.deskX * W, dy = a.deskY * H;
-    drawChair(a.x * W, a.y * H);
-    drawDesk(dx, dy);
-    drawPixelChar(a.x * W, a.y * H, a, frame);
-  });
+  drawRoundRect(W*0.1, H*FLOOR_Y - S(2), W*0.8, H*0.22, 4, 'rgba(83,74,183,.08)');
+  // Carpet pattern
+  ctx.strokeStyle = 'rgba(83,74,183,.06)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(px(W*0.12), px(H*FLOOR_Y + S(2)), px(W*0.76), px(H*0.18));
 
   // Floor line
-  drawRect(0, H*0.65, W, 2, '#2a2a3e');
+  rect(0, H*FLOOR_Y - 1, W, 2, 'rgba(129,140,248,.1)');
+
+  // ─── Windows with city view ────────────────────────
+  for (let i = 0; i < 3; i++) {
+    const wx = W * (0.18 + i * 0.32);
+    const wy = H * 0.08;
+    const ww = W * 0.14;
+    const wh = H * 0.28;
+
+    // Window frame
+    drawRoundRect(wx - ww/2 - 3, wy - 3, ww + 6, wh + 6, 2, '#1a1a30');
+    // Night sky
+    const sky = ctx.createLinearGradient(0, wy, 0, wy + wh);
+    sky.addColorStop(0, '#0a0a2e');
+    sky.addColorStop(1, '#151535');
+    ctx.fillStyle = sky;
+    ctx.fillRect(px(wx - ww/2), px(wy), px(ww), px(wh));
+
+    // Stars
+    ctx.fillStyle = '#fff';
+    for (let s = 0; s < 6; s++) {
+      const sx = wx - ww/2 + (((i*7+s*13+3)%17)/17) * ww;
+      const sy = wy + (((i*5+s*11+7)%13)/13) * wh * 0.5;
+      const ss = ((i+s)%3 === 0) ? 2 : 1;
+      ctx.globalAlpha = 0.4 + Math.sin(frame*0.02 + s + i) * 0.3;
+      ctx.fillRect(px(sx), px(sy), ss, ss);
+    }
+    ctx.globalAlpha = 1;
+
+    // City silhouette
+    ctx.fillStyle = '#0f0f28';
+    const buildings = [0.15, 0.35, 0.22, 0.4, 0.18, 0.3, 0.25];
+    buildings.forEach((bh, bi) => {
+      const bx = wx - ww/2 + (bi / buildings.length) * ww;
+      const bw = ww / buildings.length;
+      ctx.fillRect(px(bx), px(wy + wh - bh * wh), px(bw - 1), px(bh * wh));
+      // Tiny windows in buildings
+      ctx.fillStyle = 'rgba(255,200,50,.2)';
+      for (let wy2 = 0; wy2 < bh * wh - 4; wy2 += 5) {
+        if (Math.random() > 0.4)
+          ctx.fillRect(px(bx + 2), px(wy + wh - bh*wh + wy2 + 2), 2, 2);
+      }
+      ctx.fillStyle = '#0f0f28';
+    });
+
+    // Window glow on wall
+    ctx.fillStyle = 'rgba(129,140,248,.03)';
+    ctx.fillRect(px(wx - ww/2 - 20), px(wy - 10), px(ww + 40), px(wh + 30));
+
+    // Cross bars
+    rect(wx - 0.5, wy, 1, wh, '#1a1a30');
+    rect(wx - ww/2, wy + wh/2, ww, 1, '#1a1a30');
+  }
+
+  // ─── Wall decorations ──────────────────────────────
+  // xplai.eu sign (neon)
+  ctx.save();
+  ctx.shadowColor = '#534AB7';
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = '#534AB7';
+  ctx.font = `bold ${S(14)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('xplai.eu', W * 0.5, H * 0.06);
+  ctx.restore();
+
+  // Clock
+  const clkX = W * 0.88, clkY = H * 0.1, clkR = S(10);
+  ctx.beginPath(); ctx.arc(clkX, clkY, clkR, 0, Math.PI*2);
+  ctx.fillStyle = '#1a1a30'; ctx.fill();
+  ctx.strokeStyle = '#2a2a40'; ctx.lineWidth = 2; ctx.stroke();
+  const now = new Date();
+  const hAngle = (now.getHours() % 12 + now.getMinutes()/60) * Math.PI/6 - Math.PI/2;
+  const mAngle = now.getMinutes() * Math.PI/30 - Math.PI/2;
+  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(clkX, clkY);
+  ctx.lineTo(clkX + Math.cos(hAngle)*clkR*0.5, clkY + Math.sin(hAngle)*clkR*0.5); ctx.stroke();
+  ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(clkX, clkY);
+  ctx.lineTo(clkX + Math.cos(mAngle)*clkR*0.7, clkY + Math.sin(mAngle)*clkR*0.7); ctx.stroke();
+
+  // Plants
+  drawPlant(W * 0.04, H * FLOOR_Y - S(2));
+  drawPlant(W * 0.96, H * FLOOR_Y - S(2));
+  drawPlant(W * 0.35, H * FLOOR_Y - S(2));
+  drawPlant(W * 0.65, H * FLOOR_Y - S(2));
 }
 
 function drawPlant(x, y) {
-  const s = scale;
-  drawRect(x - s*1.5, y, s*3, s*3, C.plantPot);
-  drawRect(x - s*1, y - s*2, s*2, s*2, C.plant);
-  drawRect(x - s*2, y - s*3, s*1.5, s*2, C.plant);
-  drawRect(x + s*0.5, y - s*3, s*1.5, s*2, C.plant);
+  const s = S(1);
+  // Pot
+  drawRoundRect(x - s*4, y, s*8, s*6, 1, '#78350f');
+  drawRoundRect(x - s*5, y - s*1, s*10, s*2, 1, '#92400e');
+  // Leaves
+  const leaves = [[0,-8],[- 5,-12],[5,-12],[-3,-15],[3,-15],[-7,-10],[7,-10]];
+  leaves.forEach(([lx, ly], i) => {
+    const sway = Math.sin(frame * 0.015 + i * 0.7 + x * 0.01) * s * 1.5;
+    ctx.beginPath();
+    ctx.ellipse(x + lx*s + sway, y + ly*s, s*3, s*5, (lx > 0 ? 0.3 : -0.3), 0, Math.PI*2);
+    ctx.fillStyle = i < 3 ? '#22c55e' : '#16a34a';
+    ctx.fill();
+  });
 }
 
-// ─── Particles (floating data) ───────────────────────
+// ─── Desk ────────────────────────────────────────────
+function drawDesk(x, y, agent) {
+  const s = S(1);
+  const dw = S(50), dh = S(5);
+
+  // Desk shadow
+  ctx.fillStyle = 'rgba(0,0,0,.2)';
+  ctx.fillRect(px(x - dw/2 + 3), px(y + dh + S(22) + 2), px(dw - 6), px(S(4)));
+
+  // Desk body
+  drawRoundRect(x - dw/2, y, dw, dh, 2, '#2a2a40');
+  drawRoundRect(x - dw/2 + 2, y + 1, dw - 4, dh - 3, 1, '#3a3a55');
+  // Legs
+  rect(x - dw/2 + S(4), y + dh, S(3), S(22), '#252540');
+  rect(x + dw/2 - S(7), y + dh, S(3), S(22), '#252540');
+
+  // Monitor
+  const mw = S(32), mh = S(24);
+  const mx = x - mw/2, my = y - mh - S(6);
+  drawRoundRect(mx - 2, my - 2, mw + 4, mh + 4, 2, '#111');
+  // Screen with agent color glow
+  const scr = ctx.createLinearGradient(mx, my, mx, my + mh);
+  scr.addColorStop(0, agent.color);
+  scr.addColorStop(1, agent.accent);
+  ctx.fillStyle = scr;
+  ctx.fillRect(px(mx + 2), px(my + 2), px(mw - 4), px(mh - 4));
+  // Screen content
+  ctx.fillStyle = 'rgba(255,255,255,.15)';
+  for (let li = 0; li < 4; li++) {
+    const lw = (mw - 16) * (0.5 + Math.sin(frame * 0.03 + li + agent.phase) * 0.3);
+    ctx.fillRect(px(mx + 8), px(my + 8 + li * S(5)), px(lw), px(S(2)));
+  }
+  // Screen icon
+  ctx.font = `${S(10)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(agent.screenIcon, x, my + mh - S(6));
+  // Monitor stand
+  rect(x - S(2), y - S(6), S(4), S(6), '#222');
+  rect(x - S(6), y - S(1), S(12), S(2), '#222');
+
+  // Keyboard
+  drawRoundRect(x - S(10), y + S(2), S(20), S(4), 1, '#333');
+  // Keys
+  for (let ki = 0; ki < 5; ki++) {
+    ctx.fillStyle = 'rgba(255,255,255,.08)';
+    ctx.fillRect(px(x - S(8) + ki * S(4)), px(y + S(3)), px(S(3)), px(S(2)));
+  }
+
+  // Coffee cup
+  rect(x + dw/2 - S(12), y + S(1), S(4), S(4), '#8B4513');
+  ctx.fillStyle = '#5c3317';
+  ctx.fillRect(px(x + dw/2 - S(12)), px(y + S(1)), px(S(4)), px(S(1)));
+  // Steam
+  ctx.fillStyle = 'rgba(255,255,255,.1)';
+  const steam = Math.sin(frame * 0.05 + agent.phase) * S(2);
+  ctx.fillRect(px(x + dw/2 - S(11) + steam), px(y - S(2)), px(S(1)), px(S(2)));
+
+  // Agent name plate
+  const plateW = S(40);
+  drawRoundRect(x - plateW/2, y + dh + S(24), plateW, S(10), 2, 'rgba(0,0,0,.4)');
+  ctx.fillStyle = agent.color;
+  ctx.font = `bold ${S(5)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(agent.label, x, y + dh + S(31));
+}
+
+// ─── Character ───────────────────────────────────────
+function drawChar(cx, cy, a, t) {
+  const s = S(1);
+  const bob = Math.sin(t * a.bobSpeed + a.phase) * s * 2;
+  const isHov = hoveredAgent === a || selectedAgent === a;
+
+  if (isHov) { ctx.shadowColor = a.color; ctx.shadowBlur = 30; }
+
+  // Chair
+  drawRoundRect(cx - s*8, cy + s*4, s*16, s*4, 1, '#252540');
+  drawRoundRect(cx - s*8, cy - s*8, s*3, s*16, 1, '#252540');
+
+  // Legs
+  rect(cx - s*3, cy + s*2 + bob, s*6, s*6, a.color);
+
+  // Body (torso)
+  drawRoundRect(cx - s*6, cy - s*10 + bob, s*12, s*14, 2, a.color);
+  // Shirt detail
+  rect(cx - s*1, cy - s*8 + bob, s*2, s*10, a.accent);
+
+  // Head
+  drawRoundRect(cx - s*5, cy - s*18 + bob, s*10, s*10, 3, a.skinColor);
+  // Hair
+  drawRoundRect(cx - s*5, cy - s*19 + bob, s*10, s*5, 2, a.hair);
+  // Eyes
+  const blink = Math.sin(t * 0.02 + a.phase * 3) > 0.95;
+  if (!blink) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(px(cx - s*3), px(cy - s*15 + bob), px(s*3), px(s*2.5));
+    ctx.fillRect(px(cx + s*0.5), px(cy - s*15 + bob), px(s*3), px(s*2.5));
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(px(cx - s*2), px(cy - s*14.5 + bob), px(s*1.5), px(s*1.5));
+    ctx.fillRect(px(cx + s*1.5), px(cy - s*14.5 + bob), px(s*1.5), px(s*1.5));
+  } else {
+    ctx.fillStyle = a.skinColor === '#f0c8a0' ? '#d4a070' : '#b8845a';
+    rect(cx - s*3, cy - s*14 + bob, s*3, s*1, ctx.fillStyle);
+    rect(cx + s*0.5, cy - s*14 + bob, s*3, s*1, ctx.fillStyle);
+  }
+  // Mouth
+  ctx.fillStyle = '#c0846a';
+  rect(cx - s*1.5, cy - s*11 + bob, s*3, s*1);
+  // Smile
+  if (isHov) {
+    ctx.strokeStyle = '#c0846a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy - s*10.5 + bob, s*2, 0.1, Math.PI - 0.1); ctx.stroke();
+  }
+
+  // Arms
+  if (a.typing) {
+    const armL = Math.sin(t * 0.1 + a.phase) * s * 3;
+    const armR = Math.sin(t * 0.1 + a.phase + 1.8) * s * 3;
+    // Upper arms
+    ctx.fillStyle = a.color;
+    ctx.fillRect(px(cx - s*9), px(cy - s*8 + bob), px(s*4), px(s*6));
+    ctx.fillRect(px(cx + s*5), px(cy - s*8 + bob), px(s*4), px(s*6));
+    // Hands
+    ctx.fillStyle = a.skinColor;
+    ctx.fillRect(px(cx - s*9), px(cy - s*2 + bob + armL), px(s*3), px(s*3));
+    ctx.fillRect(px(cx + s*6), px(cy - s*2 + bob + armR), px(s*3), px(s*3));
+  } else {
+    ctx.fillStyle = a.color;
+    ctx.fillRect(px(cx - s*9), px(cy - s*8 + bob), px(s*4), px(s*8));
+    ctx.fillRect(px(cx + s*5), px(cy - s*8 + bob), px(s*4), px(s*8));
+    ctx.fillStyle = a.skinColor;
+    ctx.fillRect(px(cx - s*8), px(cy - s*1 + bob), px(s*3), px(s*3));
+    ctx.fillRect(px(cx + s*6), px(cy - s*1 + bob), px(s*3), px(s*3));
+  }
+
+  // Status indicator
+  ctx.beginPath();
+  ctx.arc(cx + s*6, cy - s*19 + bob, s*2.5, 0, Math.PI*2);
+  ctx.fillStyle = a.status === 'online' ? '#4ade80' : '#ef4444';
+  ctx.fill();
+  ctx.strokeStyle = '#080810'; ctx.lineWidth = 2; ctx.stroke();
+
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+}
+
+// ─── Particles ───────────────────────────────────────
 const particles = [];
-function spawnParticle(agent) {
-  const ax = agent.deskX * W, ay = agent.deskY * H;
+function spawnParticle(a) {
+  const ax = a.deskX * W, ay = H * (FLOOR_Y - 0.12);
+  const chars = a.id === 'support' ? ['📧','✉️','✓','→','RE:']
+    : a.id === 'demo' ? ['💬','🗨️','Hi','OK','👋']
+    : ['📊','✅','🔔','CMD'];
   particles.push({
-    x: ax + (Math.random()-0.5) * 20,
-    y: ay - scale * 6,
-    vx: (Math.random()-0.5) * 0.5,
-    vy: -0.3 - Math.random() * 0.5,
+    x: ax + (Math.random()-0.5) * S(30),
+    y: ay - S(10),
+    vx: (Math.random()-0.5) * 0.8,
+    vy: -0.5 - Math.random() * 0.8,
     life: 1,
-    char: ['0','1','📧','💬','✓','→'][Math.floor(Math.random()*6)],
-    color: agent.color,
+    char: chars[Math.floor(Math.random()*chars.length)],
+    color: a.color,
+    size: S(4 + Math.random()*3),
   });
 }
 
 function drawParticles() {
   particles.forEach((p, i) => {
-    p.x += p.vx; p.y += p.vy; p.life -= 0.008;
+    p.x += p.vx; p.y += p.vy; p.life -= 0.006;
     if (p.life <= 0) { particles.splice(i, 1); return; }
-    ctx.globalAlpha = p.life * 0.6;
+    ctx.globalAlpha = p.life * 0.7;
     ctx.fillStyle = p.color;
-    ctx.font = `${8 * scale/2}px monospace`;
+    ctx.font = `${p.size}px sans-serif`;
+    ctx.textAlign = 'center';
     ctx.fillText(p.char, p.x, p.y);
   });
   ctx.globalAlpha = 1;
 }
 
-// ─── Animation loop ──────────────────────────────────
+// ─── Main loop ───────────────────────────────────────
 function loop() {
   ctx.clearRect(0, 0, W, H);
-  drawScene();
+  drawRoom();
+
+  agents.forEach(a => {
+    const dx = a.deskX * W;
+    const dy = H * (FLOOR_Y - 0.08);
+    const cy = H * (FLOOR_Y + 0.06);
+    drawDesk(dx, dy, a);
+    drawChar(a.x * W, cy, a, frame);
+  });
+
   drawParticles();
 
-  // Spawn particles
-  if (frame % 30 === 0) {
+  if (frame % 20 === 0) {
     agents.forEach(a => { if (a.typing && a.status === 'online') spawnParticle(a); });
   }
 
@@ -263,43 +429,67 @@ function loop() {
 }
 loop();
 
-// ─── Mouse interaction ───────────────────────────────
+// ─── Interaction ─────────────────────────────────────
+function getAgentAt(ex, ey) {
+  const s = S(1);
+  for (const a of agents) {
+    const ax = a.x * W, ay = H * (FLOOR_Y + 0.06);
+    if (Math.abs(ex - ax) < s*15 && Math.abs(ey - ay) < s*25) return a;
+  }
+  return null;
+}
+
 canvas.addEventListener('mousemove', function(e) {
-  hoveredAgent = null;
-  const s = scale * 1.2;
-  agents.forEach(a => {
-    const ax = a.x * W, ay = a.y * H;
-    if (Math.abs(e.clientX - ax) < s*5 && Math.abs(e.clientY - ay) < s*8) {
-      hoveredAgent = a;
-    }
-  });
+  hoveredAgent = getAgentAt(e.clientX, e.clientY);
   canvas.style.cursor = hoveredAgent ? 'pointer' : 'default';
 });
 
+function showInfo(a, ex, ey) {
+  selectedAgent = a;
+  const panel = document.getElementById('info-panel');
+  const card = document.getElementById('info-card');
+
+  const statsHtml = a.id === 'support'
+    ? `<div class="ic-stats">
+        <div class="ic-stat"><div class="num">${a.stats.processed}</div><div class="lbl">emails</div></div>
+        <div class="ic-stat"><div class="num">${a.stats.replied}</div><div class="lbl">replies</div></div>
+       </div>`
+    : a.id === 'demo'
+    ? `<div class="ic-stats"><div class="ic-stat"><div class="num">24/7</div><div class="lbl">active</div></div></div>`
+    : `<div class="ic-stats"><div class="ic-stat"><div class="num">✓</div><div class="lbl">commands</div></div></div>`;
+
+  card.innerHTML = `
+    <div class="ic-head">
+      <div class="ic-icon" style="background:${a.color}20;color:${a.color}">${a.screenIcon}</div>
+      <div><div class="ic-name">${a.name}</div><div class="ic-role">${a.role}</div></div>
+    </div>
+    ${statsHtml}
+    <div style="font-size:12px;color:#9ca3af;line-height:1.5;white-space:pre-line">${a.desc}</div>
+    <div class="ic-status">
+      <div class="ic-dot" style="background:${a.status==='online'?'#4ade80':'#ef4444'}"></div>
+      <span style="color:${a.status==='online'?'#4ade80':'#ef4444'}">${a.status==='online'?'Online':'Offline'}</span>
+    </div>`;
+
+  panel.style.display = 'block';
+  const left = Math.min(ex + 15, W - 260);
+  const top = Math.max(ey - 150, 50);
+  panel.style.left = left + 'px';
+  panel.style.top = top + 'px';
+
+  clearTimeout(window._infoTimer);
+  window._infoTimer = setTimeout(() => { panel.style.display = 'none'; selectedAgent = null; }, 5000);
+}
+
 canvas.addEventListener('click', function(e) {
-  if (!hoveredAgent) return;
-  const a = hoveredAgent;
-  tooltip.style.display = 'block';
-  tooltip.style.left = Math.min(e.clientX + 10, W - 210) + 'px';
-  tooltip.style.top = (e.clientY - 60) + 'px';
-  tooltip.innerHTML = `<strong>${a.name}</strong><br><span style="color:#9ca3af">${a.desc.replace(/\n/g,'<br>')}</span><br><span style="color:${a.status==='online'?'#4ade80':'#ef4444'}">${a.status==='online'?'🟢 Online':'🔴 Offline'}</span>`;
-  setTimeout(() => { tooltip.style.display = 'none'; }, 3000);
+  const a = getAgentAt(e.clientX, e.clientY);
+  if (a) showInfo(a, e.clientX, e.clientY);
+  else { document.getElementById('info-panel').style.display = 'none'; selectedAgent = null; }
 });
 
-// Touch support
 canvas.addEventListener('touchstart', function(e) {
   const t = e.touches[0];
-  const s = scale * 1.2;
-  agents.forEach(a => {
-    const ax = a.x * W, ay = a.y * H;
-    if (Math.abs(t.clientX - ax) < s*6 && Math.abs(t.clientY - ay) < s*10) {
-      tooltip.style.display = 'block';
-      tooltip.style.left = Math.min(t.clientX + 10, W - 210) + 'px';
-      tooltip.style.top = (t.clientY - 60) + 'px';
-      tooltip.innerHTML = `<strong>${a.name}</strong><br><span style="color:#9ca3af">${a.desc.replace(/\n/g,'<br>')}</span><br><span style="color:${a.status==='online'?'#4ade80':'#ef4444'}">${a.status==='online'?'🟢 Online':'🔴 Offline'}</span>`;
-      setTimeout(() => { tooltip.style.display = 'none'; }, 3000);
-    }
-  });
+  const a = getAgentAt(t.clientX, t.clientY);
+  if (a) showInfo(a, t.clientX, t.clientY);
 });
 
 // ─── Live data ───────────────────────────────────────
@@ -308,24 +498,20 @@ async function fetchStatus() {
     const r = await fetch('/api/support/health');
     const d = await r.json();
     const s = d.stats || {};
-    document.getElementById('sb-emails').textContent = s.processed || 0;
-    const up = d.uptime || d.uptimeSeconds || 0;
-    document.getElementById('sb-uptime').textContent = Math.floor(up/3600) + 'h ' + Math.floor((up%3600)/60) + 'm';
+    agents[0].stats = { processed: s.processed || 0, replied: s.replied || 0 };
     agents[0].status = d.ok ? 'online' : 'offline';
     agents[0].typing = d.ok;
-  } catch(e) {
-    agents[0].status = 'offline';
-    agents[0].typing = false;
-  }
+    document.getElementById('sb-emails').textContent = s.processed || 0;
+    document.getElementById('sb-replied').textContent = s.replied || 0;
+    const up = d.uptime || d.uptimeSeconds || 0;
+    document.getElementById('sb-uptime').textContent = Math.floor(up/3600) + 'h ' + Math.floor((up%3600)/60) + 'm';
+  } catch(e) { agents[0].status = 'offline'; agents[0].typing = false; }
   try {
     const r = await fetch('/api/demo/health');
     const d = await r.json();
     agents[1].status = d.ok ? 'online' : 'offline';
     agents[1].typing = d.ok;
-  } catch(e) {
-    agents[1].status = 'offline';
-    agents[1].typing = false;
-  }
+  } catch(e) { agents[1].status = 'offline'; agents[1].typing = false; }
 }
 fetchStatus();
 setInterval(fetchStatus, 30000);
